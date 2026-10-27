@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>看懂 AI 的四个关键词 · Infra / Harness / Loop / Graph</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='7' fill='%237aa2ff'/%3E%3C/svg%3E">
+<meta name="description" content="用四个 3D 画面讲清楚 AI Infra、Harness、Loop、Graph">
+<style>
+  :root{
+    --bg:#03040a; --fg:#e9ecff; --dim:#8b92bd; --line:rgba(255,255,255,.09);
+    --accent:#7aa2ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:auto}
+  html,body{background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;
+    -webkit-font-smoothing:antialiased;line-height:1.7}
+  body{overflow-x:hidden}
+  ::selection{background:rgba(122,162,255,.35)}
+  #webgl{position:fixed;inset:0;width:100vw;height:100vh;display:block;z-index:0}
+  main{position:relative;z-index:2}
+
+  /* ---------- 加载遮罩 ---------- */
+  #loader{position:fixed;inset:0;z-index:50;background:#03040a;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;transition:opacity 1.4s ease, visibility 1.4s}
+  #loader.done{opacity:0;visibility:hidden}
+  #loader .ring{width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.12);
+    border-top-color:#9fd8ff;animation:spin 1s linear infinite}
+  #loader p{font-size:12px;letter-spacing:.4em;color:var(--dim)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ---------- HUD ---------- */
+  .hud{position:fixed;z-index:20;pointer-events:none;font-size:11px;letter-spacing:.28em;color:var(--dim);
+    font-family:"SF Mono",Menlo,Consolas,monospace}
+  .hud.tl{top:26px;left:30px}
+  .hud.tl b{color:var(--fg);font-weight:600}
+  .hud.tr{top:26px;right:30px;text-align:right}
+  #counter{color:var(--fg)}
+  nav.dots{position:fixed;right:28px;top:50%;transform:translateY(-50%);z-index:20;display:flex;flex-direction:column;gap:18px}
+  nav.dots button{all:unset;cursor:pointer;display:flex;align-items:center;justify-content:flex-end;gap:12px;
+    font:11px/1 "SF Mono",Menlo,Consolas,monospace;letter-spacing:.2em;color:transparent;transition:color .4s}
+  nav.dots button i{display:block;width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.25);
+    transition:all .45s cubic-bezier(.2,.8,.2,1)}
+  nav.dots button:hover{color:var(--dim)}
+  nav.dots button.on{color:var(--fg)}
+  nav.dots button.on i{background:var(--c);box-shadow:0 0 14px var(--c),0 0 4px var(--c);transform:scale(1.5)}
+  #bar{position:fixed;left:0;bottom:0;height:2px;width:0;z-index:20;
+    background:linear-gradient(90deg,#2de2ff,#ffb347,#ff3df0,#39ffb0);box-shadow:0 0 12px rgba(122,200,255,.7)}
+
+  /* ---------- 章节 ---------- */
+  .sec{position:relative;min-height:175vh}
+  .sticky{position:sticky;top:0;height:100vh;display:flex;align-items:center;padding:0 8vw;pointer-events:none}
+  .sec.right .sticky{justify-content:flex-end;padding-right:10vw}
+  .panel{pointer-events:auto;width:min(470px,88vw);max-height:88vh;overflow-y:auto;scrollbar-width:none;
+    padding:32px 32px 26px;border-radius:22px;
+    background:linear-gradient(160deg,rgba(16,18,38,.66),rgba(5,6,14,.5));
+    border:1px solid var(--line);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);
+    box-shadow:0 40px 100px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+    opacity:0;transform:translateY(46px) scale(.98);filter:blur(6px);
+    transition:opacity 1s ease, transform 1.2s cubic-bezier(.2,.8,.2,1), filter 1s ease}
+  .panel::-webkit-scrollbar{display:none}
+  .sec.in .panel{opacity:1;transform:none;filter:none}
+  .panel::before{content:"";position:absolute;inset:0;border-radius:22px;padding:1px;pointer-events:none;
+    background:linear-gradient(140deg,var(--accent),transparent 40%,transparent 70%,var(--accent));
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.55}
+  .panel{position:relative}
+  .kicker{display:flex;align-items:center;gap:12px;font:600 11px/1 "SF Mono",Menlo,Consolas,monospace;letter-spacing:.3em;color:var(--accent)}
+  .kicker .num{font-size:12px;padding:5px 8px;border:1px solid var(--accent);border-radius:6px;
+    box-shadow:0 0 18px color-mix(in srgb,var(--accent) 40%,transparent)}
+  h2{font-size:clamp(30px,3.4vw,42px);line-height:1.15;margin:14px 0 4px;font-weight:700;letter-spacing:.02em}
+  h2 small{display:block;font:500 13px/1.6 "SF Mono",Menlo,monospace;letter-spacing:.18em;color:var(--dim);margin-top:6px}
+  blockquote{margin:18px 0 6px;padding:14px 16px 14px 18px;border-left:2px solid var(--accent);
+    background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 14%,transparent),transparent);
+    border-radius:0 12px 12px 0;font-size:15.5px;line-height:1.75;color:#fff}
+  blockquote b{color:var(--accent);font-weight:600}
+  h3{font-size:12px;letter-spacing:.32em;color:var(--dim);font-weight:500;margin:20px 0 8px;display:flex;align-items:center;gap:10px}
+  h3::after{content:"";flex:1;height:1px;background:var(--line)}
+  .panel p{font-size:14px;color:#c9cdea}
+  .panel p b{color:#fff;font-weight:600}
+  .formula{display:inline-block;margin:2px 0 8px;padding:6px 12px;border-radius:8px;
+    font:600 14px/1.4 "SF Mono",Menlo,monospace;color:#fff;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+  .formula em{font-style:normal;color:var(--accent)}
+  ol.tl{list-style:none;position:relative;padding-left:16px}
+  ol.tl::before{content:"";position:absolute;left:3px;top:8px;bottom:8px;width:1px;
+    background:linear-gradient(var(--accent),transparent)}
+  ol.tl li{position:relative;font-size:13.5px;color:#c9cdea;margin:6px 0;line-height:1.6}
+  ol.tl li::before{content:"";position:absolute;left:-16px;top:8px;width:7px;height:7px;border-radius:50%;
+    background:var(--bg);border:1px solid var(--accent);box-shadow:0 0 8px var(--accent)}
+  ol.tl li b{font:600 12px/1 "SF Mono",Menlo,monospace;color:var(--accent);margin-right:8px;letter-spacing:.05em}
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chips span{font-size:12.5px;padding:5px 11px;border-radius:999px;border:1px solid var(--line);
+    background:rgba(255,255,255,.035);color:#dfe3ff}
+  .sub{display:grid;gap:8px}
+  .sub div{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--line);font-size:13.5px;color:#c9cdea;line-height:1.65}
+  .sub div b{color:var(--accent);margin-right:6px}
+  .see{margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);font-size:12.5px !important;color:var(--dim) !important}
+  .see::before{content:"◉ 画面里  ";color:var(--accent);letter-spacing:.1em}
+
+  /* ---------- Hero ---------- */
+  .hero{min-height:160vh}
+  .hero .sticky{justify-content:center;text-align:center;padding:0 6vw}
+  .hero-inner{pointer-events:auto;transition:opacity .6s}
+  .eyebrow{font:500 11px/1 "SF Mono",Menlo,monospace;letter-spacing:.6em;color:var(--dim);margin-bottom:26px}
+  .hero h1{font-weight:800;line-height:1.05;letter-spacing:.02em}
+  .hero h1 .l1{display:block;font-size:clamp(22px,2.6vw,34px);font-weight:400;color:#cfd4f5;letter-spacing:.3em;margin-bottom:14px}
+  .hero h1 .l2{display:block;font-size:clamp(54px,9vw,128px);
+    background:linear-gradient(100deg,#9fe8ff 0%,#ffffff 30%,#ffc98a 50%,#ff8bf2 70%,#8fffd2 100%);
+    background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:shimmer 8s ease-in-out infinite;filter:drop-shadow(0 0 30px rgba(140,170,255,.35))}
+  @keyframes shimmer{0%,100%{background-position:0% 0}50%{background-position:100% 0}}
+  .terms{margin-top:28px;display:flex;gap:clamp(12px,2.4vw,34px);justify-content:center;flex-wrap:wrap;
+    font:600 clamp(12px,1.1vw,15px)/1 "SF Mono",Menlo,monospace;letter-spacing:.3em}
+  .terms span:nth-child(1){color:#2de2ff}.terms span:nth-child(2){color:#ffb347}
+  .terms span:nth-child(3){color:#ff5cf0}.terms span:nth-child(4){color:#39ffb0}
+  .hero .lead{max-width:560px;margin:30px auto 0;font-size:15px;color:#b9bfe3}
+  .hint{margin-top:56px;font:500 11px/1 "SF Mono",Menlo,monospace;letter-spacing:.4em;color:var(--dim)}
+  .hint i{display:block;width:1px;height:46px;margin:14px auto 0;background:linear-gradient(#fff,transparent);
+    animation:drip 2.2s ease-in-out infinite;transform-origin:top}
+  @keyframes drip{0%{transform:scaleY(0);opacity:1}60%{transform:scaleY(1);opacity:1}100%{transform:scaleY(1);opacity:0}}
+
+  /* ---------- Outro ---------- */
+  .outro .sticky{justify-content:center;align-items:flex-end;padding-bottom:6vh}
+  .outro .panel{width:min(760px,92vw);text-align:center}
+  .chain{display:flex;align-items:stretch;justify-content:center;gap:8px;margin:22px 0 8px;flex-wrap:wrap}
+  .chain .node{flex:1;min-width:120px;padding:14px 10px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+  .chain .node b{display:block;font:700 13px/1.2 "SF Mono",Menlo,monospace;letter-spacing:.14em;margin-bottom:6px}
+  .chain .node span{font-size:13px;color:#c9cdea}
+  .chain .arr{align-self:center;color:var(--dim);font-size:18px}
+  .outro .big{font-size:clamp(20px,2.2vw,27px);line-height:1.6;color:#fff;margin-top:8px}
+  .outro .foot{margin-top:22px;font-size:12px !important;color:var(--dim) !important}
+  .outro .foot code{font-family:"SF Mono",Menlo,monospace;color:#cfd4f5}
+
+  .lbl{font-weight:600;letter-spacing:.08em;color:var(--lc);white-space:nowrap;padding:4px 11px;border-radius:999px;
+    background:rgba(6,8,20,.55);border:1px solid color-mix(in srgb,var(--lc) 45%,transparent);
+    box-shadow:0 0 18px color-mix(in srgb,var(--lc) 30%,transparent);backdrop-filter:blur(4px);
+    text-shadow:0 0 10px color-mix(in srgb,var(--lc) 70%,transparent);transition:opacity .2s;opacity:0}
+  .hero .lead{text-shadow:0 2px 14px rgba(0,0,0,.9),0 0 4px rgba(0,0,0,.8)}
+  .nogl{display:none;position:fixed;inset:auto 0 0 0;z-index:40;padding:12px;text-align:center;font-size:13px;
+    background:rgba(255,80,80,.15);color:#ffd6d6}
+  body.no-webgl .nogl{display:block}
+
+  @media (max-width:820px){
+    .sticky,.sec.right .sticky{justify-content:center;align-items:flex-end;padding:0 4vw 5vh}
+    .panel{max-height:62vh;padding:24px 22px 20px}
+    nav.dots{display:none}
+    .hud.tr{display:none}
+    .hero .sticky{align-items:center;padding-bottom:0}
+    .lbl{font-size:10.5px !important;padding:3px 8px}
+  }
+  @media (prefers-reduced-motion:reduce){ .panel{transition:opacity .4s} }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="webgl"></canvas>
+
+<div id="loader"><div class="ring"></div><p>正在点亮宇宙</p></div>
+
+<div class="hud tl"><b>AI GLOSSARY</b> &nbsp;/&nbsp; 四个关键词</div>
+<div class="hud tr"><span id="counter">00</span> / 04 &nbsp;·&nbsp; <span id="termName">INTRO</span></div>
+<nav class="dots" id="dots"></nav>
+<div id="bar"></div>
+<div class="nogl">你的浏览器没能启动 WebGL，3D 画面无法显示，但文字内容仍可阅读。</div>
+
+<main>
+  <!-- 0 · HERO -->
+  <section class="sec hero in" data-name="INTRO" data-color="#9fb4ff">
+    <div class="sticky">
+      <div class="hero-inner" id="heroInner">
+        <div class="eyebrow">A VISUAL GLOSSARY · 2026</div>
+        <h1><span class="l1">看懂 AI 的</span><span class="l2">四个关键词</span></h1>
+        <div class="terms"><span>INFRA</span><span>HARNESS</span><span>LOOP</span><span>GRAPH</span></div>
+        <p class="lead">AI 跑在什么上面？怎么被“驾驭”？怎么反复干活？又怎么把一切连成网？<br>往下滑，三万颗光点会为你逐一变形演示。</p>
+        <div class="hint">SCROLL<i></i></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 1 · INFRA -->
+  <section class="sec left" data-name="AI INFRA" data-color="#2de2ff" style="--accent:#2de2ff">
+    <div class="sticky"><article class="panel">
+      <div class="kicker"><span class="num">01</span><span>AI INFRA</span></div>
+      <h2>AI 基础设施<small>AI INFRASTRUCTURE</small></h2>
+      <blockquote>如果 AI 是一家明星餐厅，<b>Infra 就是整座城市的电网、水管、道路和中央厨房</b>。食客看不见它们，可没有它们，一道菜也做不出来。</blockquote>
+      <h3>它是什么</h3>
+      <p>一层一层往上搭：最底下是<b>电力和机房</b>；往上是 <b>GPU 芯片</b>，真正“算”的地方；再往上是把几万张芯片连在一起的<b>高速网络</b>、存数据的<b>仓库</b>、分派任务的<b>调度系统</b>；最顶层才是你用到的 <b>AI 服务</b>。训练模型拼的是“蛮力”，回答问题拼的是“速度”。</p>
+      <h3>从哪来</h3>
+      <ol class="tl">
+        <li><b>2006</b>NVIDIA 推出 G80 显卡，第一款支持 CUDA 的 GPU，显卡开始做“通用计算”</li>
+        <li><b>2012</b>AlexNet 在卧室里用两块游戏显卡训练完成，赢下 ImageNet 比赛，深度学习从此起飞</li>
+        <li><b>2025</b>OpenAI、软银等宣布 Stargate 计划，目标到 2029 年投入 5000 亿美元</li>
+        <li><b>2026</b>Dell'Oro 预测全球数据中心年度资本开支将首次超过 1 万亿美元</li>
+      </ol>
+      <h3>你见过的它</h3>
+      <div class="chips"><span>NVIDIA GPU</span><span>Google TPU</span><span>AWS / Azure / Google Cloud</span><span>向量数据库</span><span>Kubernetes 调度</span></div>
+      <p class="see">五层发光的“地基”自下而上堆叠，数据像光点一样沿着柱子向上输送。</p>
+    </article></div>
+  </section>
+
+  <!-- 2 · HARNESS -->
+  <section class="sec right" data-name="HARNESS" data-color="#ffb347" style="--accent:#ffb347">
+    <div class="sticky"><article class="panel">
+      <div class="kicker"><span class="num">02</span><span>HARNESS</span></div>
+      <h2>马具 · 外壳<small>AGENT HARNESS / EVAL HARNESS</small></h2>
+      <blockquote>模型像一匹<b>力大无穷却不认路的野马</b>。Harness 本义是“马具”，就是缰绳、马鞍和车架。套上之后，马力才变成能拉货、会转弯、不翻车的马车。</blockquote>
+      <h3>它是什么</h3>
+      <div class="formula">Agent = <em>Model</em> + <em>Harness</em></div>
+      <p>模型本身只会“接着往下写字”：记不住事，也动不了手。Harness 是<b>模型之外的一切</b>：调用工具（读文件、上网、跑代码）、管理记忆和上下文、设置权限与护栏、检查结果。同样的模型，配上更好的 harness，就是更能干的智能体。</p>
+      <p style="margin-top:8px"><b>Eval Harness</b> 是另一个意思：统一的“驾考场地”，给所有模型出同样的题、用同样的标准打分。</p>
+      <h3>从哪来</h3>
+      <ol class="tl">
+        <li><b>2021</b>EleutherAI 发布 lm-evaluation-harness，后来成为 Hugging Face 开源模型排行榜的后端</li>
+        <li><b>2023–24</b>研究界把模型外面这一层叫作 scaffolding（脚手架）</li>
+        <li><b>2026 初</b>LangChain 的工程文章推广了 “Agent = Model + Harness”</li>
+        <li><b>2026.02</b>“harness engineering” 一词流行，Mitchell Hashimoto 最早提到</li>
+      </ol>
+      <h3>你见过的它</h3>
+      <div class="chips"><span>Claude Code</span><span>Codex CLI</span><span>Cursor</span><span>Claude Agent SDK</span><span>lm-evaluation-harness</span></div>
+      <p class="see">中心发光的核心是模型；金色多面体笼子和环绕的轨道就是 harness，轨道上的小球是工具、记忆、护栏……</p>
+    </article></div>
+  </section>
+
+  <!-- 3 · LOOP -->
+  <section class="sec left" data-name="LOOP" data-color="#ff5cf0" style="--accent:#ff5cf0">
+    <div class="sticky"><article class="panel">
+      <div class="kicker"><span class="num">03</span><span>AGENT LOOP</span></div>
+      <h2>循环<small>THE AGENT LOOP</small></h2>
+      <blockquote>就像厨师试菜：<b>尝一口、加点盐、再尝一口</b>，直到味道对了才上桌。智能体干活也是一圈一圈“试”出来的。</blockquote>
+      <h3>它是什么</h3>
+      <p>智能体不是一问一答，而是一个循环：<b>思考</b>下一步 → <b>行动</b>（调用工具）→ <b>观察</b>结果 → <b>验证</b>对不对，不满意就再转一圈。它还必须带着“刹车”：最多转几圈、最多花多少钱、什么算完成。没有刹车，就可能原地打转。</p>
+      <h3>从哪来</h3>
+      <ol class="tl">
+        <li><b>2022.10</b>Shunyu Yao 等人发表 ReAct 论文，让模型“边推理边行动”，交替进行</li>
+        <li><b>2023</b>AutoGPT 等开源项目让“AI 自己循环干活”出圈</li>
+        <li><b>2024.12</b>Anthropic 发表《Building Effective Agents》，把智能体定义为“在循环里使用工具的模型”</li>
+      </ol>
+      <h3>你见过的它</h3>
+      <div class="chips"><span>编程助手：改代码 → 跑测试 → 再改</span><span>Deep Research：搜 → 读 → 再搜</span><span>ReAct Agent</span></div>
+      <p class="see">粒子沿着光环一圈圈奔流；最亮的“彗星头”每经过一站，那一步就被点亮。</p>
+    </article></div>
+  </section>
+
+  <!-- 4 · GRAPH -->
+  <section class="sec right" data-name="GRAPH" data-color="#39ffb0" style="--accent:#39ffb0">
+    <div class="sticky"><article class="panel">
+      <div class="kicker"><span class="num">04</span><span>GRAPH</span></div>
+      <h2>图 · 网络<small>COMPUTATION / KNOWLEDGE / AGENT GRAPH</small></h2>
+      <blockquote>Graph 就是一张<b>地铁线路图</b>：站点是“节点”，轨道是“连线”。在 AI 里，它有三种常见用法。</blockquote>
+      <h3>它是什么</h3>
+      <div class="sub">
+        <div><b>计算图</b>神经网络的每一步计算都是一个站点。沿着线路倒着走一遍，就能算出每个参数“该往哪儿改”，这是 AI 能自己学习的工程基础（自动微分）。</div>
+        <div><b>知识图谱</b>把知识存成“谁—什么关系—谁”，比如 达·芬奇 —创作→ 蒙娜丽莎。</div>
+        <div><b>编排图</b>LangGraph 把智能体的工作流画成图，允许有“环线”回到之前的步骤，也就是用图来画上一章的 Loop。</div>
+      </div>
+      <h3>从哪来</h3>
+      <ol class="tl">
+        <li><b>2010</b>Theano 引入计算图与自动微分；2015 年 TensorFlow 发布</li>
+        <li><b>2012.05</b>Google 发布知识图谱，口号是 “things, not strings”</li>
+        <li><b>2024.01</b>LangChain 发布 LangGraph，支持带环的智能体流程</li>
+        <li><b>2024</b>Microsoft Research 推出 GraphRAG，让大模型先抽取知识图谱再检索</li>
+      </ol>
+      <h3>你见过的它</h3>
+      <div class="chips"><span>PyTorch / TensorFlow</span><span>Google 知识图谱</span><span>GraphRAG</span><span>LangGraph</span></div>
+      <p class="see">光点沿着连线在节点之间穿梭，就像信息在网络里传递。</p>
+    </article></div>
+  </section>
+
+  <!-- 5 · OUTRO -->
+  <section class="sec outro" data-name="ALL TOGETHER" data-color="#ffffff" style="--accent:#cdd6ff">
+    <div class="sticky"><article class="panel">
+      <div class="kicker" style="justify-content:center"><span class="num">∞</span><span>ALL TOGETHER</span></div>
+      <p class="big">四个词，其实是同一个故事</p>
+      <div class="chain">
+        <div class="node"><b style="color:#2de2ff">INFRA</b><span>打好算力地基</span></div><div class="arr">→</div>
+        <div class="node"><b style="color:#ffb347">HARNESS</b><span>给模型套上马具</span></div><div class="arr">→</div>
+        <div class="node"><b style="color:#ff5cf0">LOOP</b><span>让它一圈圈干活</span></div><div class="arr">→</div>
+        <div class="node"><b style="color:#39ffb0">GRAPH</b><span>把流程与知识织成网</span></div>
+      </div>
+      <p class="foot">调研与出处详见同目录 <code>research.md</code> · 视觉致敬 Three.js 创作者 iamtechartist 的粒子与着色器美学</p>
+    </article></div>
+  </section>
+</main>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+/* =========================================================
+   DOM / 滚动状态
+   ========================================================= */
+const sections = [...document.querySelectorAll('.sec')];
+const LAST = sections.length - 1;               // 0 hero … 5 outro
+const dotsEl = document.getElementById('dots');
+const counterEl = document.getElementById('counter');
+const termEl = document.getElementById('termName');
+const barEl = document.getElementById('bar');
+const heroInner = document.getElementById('heroInner');
+
+sections.forEach((s, i) => {
+  if (i === 0) return;
+  const b = document.createElement('button');
+  b.style.setProperty('--c', s.dataset.color);
+  b.innerHTML = `${s.dataset.name}<i></i>`;
+  b.addEventListener('click', () => {
+    const c = s.offsetTop + s.offsetHeight / 2 - innerHeight / 2;
+    window.scrollTo({ top: c, behavior: 'smooth' });
+  });
+  dotsEl.appendChild(b);
+});
+const dotBtns = [...dotsEl.children];
+
+let centers = [];
+function measure() { centers = sections.map(s => s.offsetTop + s.offsetHeight / 2); }
+
+function scrollMorph() {
+  const c = scrollY + innerHeight / 2;
+  if (c <= centers[0]) return 0;
+  for (let i = 0; i < centers.length - 1; i++) {
+    if (c < centers[i + 1]) {
+      const f = (c - centers[i]) / (centers[i + 1] - centers[i]);
+      return i + smoothstep(0.3, 0.7, f);
+    }
+  }
+  return LAST;
+}
+function smoothstep(a, b, x) { const t = Math.min(Math.max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); }
+const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
+
+let morphTarget = 0, activeIdx = -1;
+function onScroll() {
+  morphTarget = scrollMorph();
+  const max = document.documentElement.scrollHeight - innerHeight;
+  barEl.style.width = (max > 0 ? scrollY / max * 100 : 0) + '%';
+  const idx = Math.round(morphTarget);
+  if (idx !== activeIdx) {
+    activeIdx = idx;
+    sections.forEach((s, i) => s.classList.toggle('in', i === idx));
+    dotBtns.forEach((b, i) => b.classList.toggle('on', i + 1 === idx));
+    counterEl.textContent = String(Math.min(idx, 4)).padStart(2, '0');
+    termEl.textContent = sections[idx].dataset.name;
+  }
+  heroInner.style.opacity = String(clamp(1 - morphTarget * 2.2, 0, 1));
+}
+
+measure(); onScroll();
+addEventListener('scroll', onScroll, { passive: true });
+
+/* =========================================================
+   WebGL 初始化
+   ========================================================= */
+try { initGL(); }
+catch (err) {
+  console.warn('WebGL 初始化失败：', err);
+  document.body.classList.add('no-webgl');
+  document.getElementById('loader').classList.add('done');
+}
+
+function initGL() {
+  const isMobile = matchMedia('(max-width: 820px)').matches;
+  const N = isMobile ? 14000 : 28000;
+
+  const canvas = document.getElementById('webgl');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+  const PR = Math.min(devicePixelRatio, isMobile ? 1.5 : 1.75);
+  renderer.setPixelRatio(PR);
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  renderer.setClearColor(0x03040a, 1);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1200);
+  camera.position.set(0, 2, 34);
+  // 竖屏：文字面板在下方，把 3D 画面整体上移到屏幕上半部
+  function applyViewOffset() {
+    if (innerWidth < 820 && innerWidth < innerHeight) camera.setViewOffset(innerWidth, innerHeight, 0, innerHeight * 0.24, innerWidth, innerHeight);
+    else camera.clearViewOffset();
+  }
+  applyViewOffset();
+
+  const stage = new THREE.Group();
+  scene.add(stage);
+
+  /* ---------- 随机工具 ---------- */
+  let seed = 20261028;
+  const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const gauss = () => (rnd() + rnd() + rnd() + rnd() - 2) * 0.87;
+  const TAU = Math.PI * 2;
+
+  /* =========================================================
+     共享几何数据：Infra 层、Harness 笼子/轨道、Graph 节点
+     ========================================================= */
+  const INFRA_LAYERS = 5;
+  const layerY = l => -6 + l * 3;
+  const layerHalf = l => 7.2 - l * 0.65;
+  const PILLARS = [];
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) PILLARS.push([a, b]);
+
+  const cageGeo = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(6, 1));
+  const cageArr = cageGeo.attributes.position.array;
+  const cageSegs = cageArr.length / 6;
+  const RINGS = [
+    { r: 8.0, e: new THREE.Euler(1.15, 0.0, 0.35), speed: 0.35 },
+    { r: 8.9, e: new THREE.Euler(0.35, 0.2, -0.95), speed: -0.27 },
+    { r: 9.8, e: new THREE.Euler(-0.65, 0.5, 1.35), speed: 0.21 },
+  ];
+  const ringPoint = (ring, a, out = new THREE.Vector3()) =>
+    out.set(Math.cos(a) * ring.r, 0, Math.sin(a) * ring.r).applyEuler(ring.e);
+
+  const LOOP_R = 7.5;
+
+  const gNodes = [];
+  for (let tries = 0; gNodes.length < 44 && tries < 5000; tries++) {
+    const v = new THREE.Vector3((rnd() * 2 - 1) * 9.5, (rnd() * 2 - 1) * 6, (rnd() * 2 - 1) * 7);
+    if (gNodes.every(n => n.distanceTo(v) > 2.7)) gNodes.push(v);
+  }
+  const gEdges = []; const edgeKey = new Set();
+  gNodes.forEach((n, i) => {
+    const near = gNodes.map((m, j) => [j, n.distanceTo(m)]).filter(x => x[0] !== i).sort((a, b) => a[1] - b[1]);
+    for (let k = 0; k < 3; k++) {
+      const j = near[k][0]; const key = i < j ? `${i}-${j}` : `${j}-${i}`;
+      if (k === 2 && rnd() < 0.5) continue;
+      if (!edgeKey.has(key)) { edgeKey.add(key); gEdges.push([i, j]); }
+    }
+  });
+
+  /* =========================================================
+     主粒子群：一个粒子系统在 6 种形态之间变形
+     0 星系 · 1 Infra · 2 Harness · 3 Loop · 4 Graph · 5 星球
+     ========================================================= */
+  const pHero = new Float32Array(N * 3), pInfra = new Float32Array(N * 3), pHarness = new Float32Array(N * 3),
+        pOutro = new Float32Array(N * 3), pGa = new Float32Array(N * 3), pGb = new Float32Array(N * 3),
+        aLoop = new Float32Array(N * 4), aHueA = new Float32Array(N * 4), aHueB = new Float32Array(N), aRand = new Float32Array(N);
+  const tmp = new THREE.Vector3();
+
+  for (let i = 0; i < N; i++) {
+    const i3 = i * 3, i4 = i * 4;
+    aRand[i] = rnd();
+
+    // 0 · 星系
+    {
+      let x, y, z, h;
+      if (rnd() < 0.14) {
+        const r = Math.pow(rnd(), 2) * 2.2; const th = rnd() * TAU, ph = Math.acos(2 * rnd() - 1);
+        x = r * Math.sin(ph) * Math.cos(th); y = r * Math.cos(ph) * 0.6; z = r * Math.sin(ph) * Math.sin(th); h = 0.95;
+      } else {
+        const r = 1.5 + Math.pow(rnd(), 1.4) * 14; const arm = i % 3;
+        const a = arm / 3 * TAU + r * 0.42 + gauss() * 0.22;
+        x = Math.cos(a) * r + gauss() * (0.3 + r * 0.05); z = Math.sin(a) * r + gauss() * (0.3 + r * 0.05);
+        y = gauss() * 0.45 * (1.3 - r / 16); h = r / 16;
+      }
+      tmp.set(x, y, z).applyEuler(new THREE.Euler(1.05, 0, 0.25));
+      pHero[i3] = tmp.x; pHero[i3 + 1] = tmp.y; pHero[i3 + 2] = tmp.z; aHueA[i4] = h;
+    }
+
+    // 1 · Infra：五层网格 + 立柱
+    {
+      if (rnd() < 0.16) {
+        const p = PILLARS[Math.floor(rnd() * PILLARS.length)];
+        const half = layerHalf(INFRA_LAYERS - 1) * 0.92;
+        pInfra[i3] = p[0] * half + gauss() * 0.06; pInfra[i3 + 1] = -6 + rnd() * 12; pInfra[i3 + 2] = p[1] * half + gauss() * 0.06;
+        aHueA[i4 + 1] = 0.95;
+      } else {
+        const l = Math.floor(rnd() * INFRA_LAYERS), h = layerHalf(l), step = h * 2 / 12;
+        let x, z;
+        if (rnd() < 0.5) { x = -h + Math.round(rnd() * 12) * step; z = -h + rnd() * 2 * h; }
+        else { z = -h + Math.round(rnd() * 12) * step; x = -h + rnd() * 2 * h; }
+        pInfra[i3] = x; pInfra[i3 + 1] = layerY(l) + gauss() * 0.05; pInfra[i3 + 2] = z;
+        aHueA[i4 + 1] = l / (INFRA_LAYERS - 1) * 0.85;
+      }
+    }
+
+    // 2 · Harness：核心 + 多面体笼子 + 三条轨道
+    {
+      const u = rnd();
+      if (u < 0.2) {
+        const r = 1.7 * Math.cbrt(rnd()); const th = rnd() * TAU, ph = Math.acos(2 * rnd() - 1);
+        tmp.set(r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph), r * Math.sin(ph) * Math.sin(th));
+        aHueA[i4 + 2] = rnd() * 0.29;
+      } else if (u < 0.68) {
+        const s = Math.floor(rnd() * cageSegs) * 6, t = rnd();
+        tmp.set(cageArr[s] + (cageArr[s + 3] - cageArr[s]) * t,
+                cageArr[s + 1] + (cageArr[s + 4] - cageArr[s + 1]) * t,
+                cageArr[s + 2] + (cageArr[s + 5] - cageArr[s + 2]) * t);
+        tmp.addScaledVector(new THREE.Vector3(gauss(), gauss(), gauss()), 0.05);
+        aHueA[i4 + 2] = 0.3 + rnd() * 0.39;
+      } else {
+        const ring = RINGS[Math.floor(rnd() * 3)];
+        ringPoint(ring, rnd() * TAU, tmp).addScaledVector(new THREE.Vector3(gauss(), gauss(), gauss()), 0.07);
+        aHueA[i4 + 2] = 0.7 + rnd() * 0.3;
+      }
+      pHarness[i3] = tmp.x; pHarness[i3 + 1] = tmp.y; pHarness[i3 + 2] = tmp.z;
+    }
+
+    // 3 · Loop：环面参数（位置在着色器里随时间流动）
+    aLoop[i4] = rnd() * TAU; aLoop[i4 + 1] = rnd() * TAU; aLoop[i4 + 2] = rnd();
+
+    // 4 · Graph：节点簇 + 沿连线流动
+    {
+      if (rnd() < 0.32) {
+        const n = gNodes[Math.floor(rnd() * gNodes.length)];
+        const r = 0.45 * Math.pow(rnd(), 1.5);
+        tmp.set(gauss(), gauss(), gauss()).normalize().multiplyScalar(r).add(n);
+        pGa[i3] = pGb[i3] = tmp.x; pGa[i3 + 1] = pGb[i3 + 1] = tmp.y; pGa[i3 + 2] = pGb[i3 + 2] = tmp.z;
+        aHueA[i4 + 3] = rnd() * 0.39;
+      } else {
+        const [a, b] = gEdges[Math.floor(rnd() * gEdges.length)];
+        const A = rnd() < 0.5 ? gNodes[a] : gNodes[b], B = A === gNodes[a] ? gNodes[b] : gNodes[a];
+        const j = 0.06;
+        pGa[i3] = A.x + gauss() * j; pGa[i3 + 1] = A.y + gauss() * j; pGa[i3 + 2] = A.z + gauss() * j;
+        pGb[i3] = B.x + gauss() * j; pGb[i3 + 1] = B.y + gauss() * j; pGb[i3 + 2] = B.z + gauss() * j;
+        aHueA[i4 + 3] = 0.4 + rnd() * 0.6;
+      }
+      aLoop[i4 + 3] = rnd();
+    }
+
+    // 5 · 终章：带光环的星球
+    {
+      if (rnd() < 0.62) {
+        const k = i + 0.5, phi = Math.acos(1 - 2 * ((k * 0.61803398875) % 1)), th = TAU * k * 0.7548776662;
+        const r = 7 + gauss() * 0.12;
+        tmp.set(r * Math.sin(phi) * Math.cos(th), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(th));
+      } else {
+        const a = rnd() * TAU, r = 10 + Math.pow(rnd(), 0.7) * 5.5;
+        tmp.set(Math.cos(a) * r, gauss() * 0.12, Math.sin(a) * r).applyEuler(new THREE.Euler(0.42, 0, -0.32));
+      }
+      pOutro[i3] = tmp.x; pOutro[i3 + 1] = tmp.y; pOutro[i3 + 2] = tmp.z; aHueB[i] = rnd();
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pHero, 3));
+  geo.setAttribute('aInfra', new THREE.BufferAttribute(pInfra, 3));
+  geo.setAttribute('aHarness', new THREE.BufferAttribute(pHarness, 3));
+  geo.setAttribute('aOutro', new THREE.BufferAttribute(pOutro, 3));
+  geo.setAttribute('aGa', new THREE.BufferAttribute(pGa, 3));
+  geo.setAttribute('aGb', new THREE.BufferAttribute(pGb, 3));
+  geo.setAttribute('aLoop', new THREE.BufferAttribute(aLoop, 4));
+  geo.setAttribute('aHueA', new THREE.BufferAttribute(aHueA, 4));
+  geo.setAttribute('aHueB', new THREE.BufferAttribute(aHueB, 1));
+  geo.setAttribute('aRand', new THREE.BufferAttribute(aRand, 1));
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 40);
+
+  const NOISE_GLSL = /* glsl */`
+    vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}
+    vec4 mod289(vec4 x){return x-floor(x*(1./289.))*289.;}
+    vec4 permute(vec4 x){return mod289(((x*34.)+1.)*x);}
+    vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+    float snoise(vec3 v){
+      const vec2 C=vec2(1./6.,1./3.); const vec4 D=vec4(0.,.5,1.,2.);
+      vec3 i=floor(v+dot(v,C.yyy)); vec3 x0=v-i+dot(i,C.xxx);
+      vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.-g; vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);
+      vec3 x1=x0-i1+C.xxx; vec3 x2=x0-i2+C.yyy; vec3 x3=x0-D.yyy;
+      i=mod289(i);
+      vec4 p=permute(permute(permute(i.z+vec4(0.,i1.z,i2.z,1.))+i.y+vec4(0.,i1.y,i2.y,1.))+i.x+vec4(0.,i1.x,i2.x,1.));
+      float n_=.142857142857; vec3 ns=n_*D.wyz-D.xzx;
+      vec4 j=p-49.*floor(p*ns.z*ns.z); vec4 x_=floor(j*ns.z); vec4 y_=floor(j-7.*x_);
+      vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy; vec4 h=1.-abs(x)-abs(y);
+      vec4 b0=vec4(x.xy,y.xy); vec4 b1=vec4(x.zw,y.zw);
+      vec4 s0=floor(b0)*2.+1.; vec4 s1=floor(b1)*2.+1.; vec4 sh=-step(h,vec4(0.));
+      vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+      vec3 p0=vec3(a0.xy,h.x); vec3 p1=vec3(a0.zw,h.y); vec3 p2=vec3(a1.xy,h.z); vec3 p3=vec3(a1.zw,h.w);
+      vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+      p0*=norm.x; p1*=norm.y; p2*=norm.z; p3*=norm.w;
+      vec4 m=max(.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.); m=m*m;
+      return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+    }`;
+
+  const swarmMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 }, uMorph: { value: 0 }, uSize: { value: isMobile ? 70 : 88 },
+      uPR: { value: PR }, uMouse: { value: new THREE.Vector2(9, 9) }, uAspect: { value: innerWidth / innerHeight },
+      uMouseStr: { value: 0 },
+    },
+    vertexShader: /* glsl */`
+      uniform float uTime, uMorph, uSize, uPR, uAspect, uMouseStr;
+      uniform vec2 uMouse;
+      attribute vec3 aInfra, aHarness, aOutro, aGa, aGb;
+      attribute vec4 aLoop, aHueA;
+      attribute float aHueB, aRand;
+      varying vec3 vColor;
+      varying float vAlpha;
+      ${NOISE_GLSL}
+
+      float loopTheta(){ return aLoop.x + uTime * (0.32 + 0.3 * aLoop.z); }
+
+      vec3 shapePos(int i){
+        if(i==0) return position;
+        if(i==1) return aInfra;
+        if(i==2) return aHarness;
+        if(i==3){
+          float th = loopTheta();
+          float rr = 1.25 * sqrt(fract(aRand * 7.13));
+          float ph = aLoop.y + uTime * 0.6;
+          float R = ${LOOP_R.toFixed(2)} + rr * cos(ph);
+          return vec3(R * cos(th), rr * sin(ph) * 0.8, R * sin(th));
+        }
+        if(i==4){
+          float t = fract(aLoop.w + uTime * 0.13 * (0.6 + aLoop.z));
+          return mix(aGa, aGb, t);
+        }
+        return aOutro;
+      }
+
+      vec3 shapeCol(int i){
+        if(i==0){
+          float h = aHueA.x;
+          if(h > 0.9) return vec3(1.0, 0.86, 0.72) * 1.4;
+          vec3 c = mix(vec3(0.45, 0.55, 1.0), vec3(0.85, 0.35, 1.0), smoothstep(0.0, 0.55, h));
+          return mix(c, vec3(0.25, 0.9, 1.0), smoothstep(0.55, 1.0, h));
+        }
+        if(i==1){
+          float h = aHueA.y;
+          if(h > 0.9) return vec3(0.75, 1.0, 1.0) * 1.5;
+          return mix(vec3(0.15, 0.45, 1.0), vec3(0.2, 1.0, 0.95), h);
+        }
+        if(i==2){
+          float h = aHueA.z;
+          if(h < 0.3) return vec3(1.0, 0.8, 0.55) * 1.05;
+          if(h < 0.7) return mix(vec3(1.0, 0.55, 0.15), vec3(1.0, 0.8, 0.38), (h - 0.3) / 0.4);
+          return vec3(1.0, 0.35, 0.18);
+        }
+        if(i==3){
+          float th = loopTheta();
+          float k = 0.5 + 0.5 * sin(th + uTime * 0.4);
+          vec3 c = mix(vec3(1.0, 0.22, 0.85), vec3(0.25, 0.85, 1.0), k);
+          float head = pow(0.5 + 0.5 * cos(th - uTime * 1.1), 14.0);
+          return c * (0.6 + head * 2.4);
+        }
+        if(i==4){
+          float h = aHueA.w;
+          if(h < 0.4) return vec3(0.6, 1.0, 0.85) * 1.5;
+          return mix(vec3(0.1, 0.9, 0.6), vec3(0.15, 0.55, 1.0), (h - 0.4) / 0.6);
+        }
+        float h = aHueB;
+        return h < 0.25 ? vec3(0.18, 0.88, 1.0) : h < 0.5 ? vec3(1.0, 0.68, 0.28) : h < 0.75 ? vec3(1.0, 0.32, 0.92) : vec3(0.25, 1.0, 0.7);
+      }
+
+      float shapeSize(int i){
+        if(i==0) return aHueA.x > 0.9 ? 1.3 : 1.0;
+        if(i==2) return aHueA.z < 0.3 ? 1.25 : 1.0;
+        if(i==4) return aHueA.w < 0.4 ? 1.3 : 0.85;
+        return 1.0;
+      }
+
+      void main(){
+        float m = clamp(uMorph, 0.0, 5.0);
+        float base = min(floor(m), 4.0);
+        float f = m - base;
+        int i0 = int(base);
+        int i1 = int(base + 1.0);
+        float ff = smoothstep(0.0, 1.0, clamp(f * 1.6 - aRand * 0.6, 0.0, 1.0));
+
+        vec3 p = mix(shapePos(i0), shapePos(i1), ff);
+        float chaos = sin(ff * 3.14159);
+
+        // 噪声扰动：平时轻微呼吸，变形途中化作星尘漩涡
+        vec3 np = p * 0.11 + vec3(0.0, uTime * 0.12, uTime * 0.05);
+        vec3 n = vec3(snoise(np), snoise(np + vec3(31.4, 0.0, 0.0)), snoise(np + vec3(-17.2, 8.1, 4.3)));
+        p += n * (0.1 + chaos * 4.2);
+        float ang = chaos * 2.2 * (aRand - 0.3);
+        float ca = cos(ang), sa = sin(ang);
+        p.xz = mat2(ca, -sa, sa, ca) * p.xz;
+        p.y += chaos * (aRand - 0.5) * 3.0;
+
+        vColor = mix(shapeCol(i0), shapeCol(i1), ff);
+        float sz = mix(shapeSize(i0), shapeSize(i1), ff);
+        vColor *= 1.0 - chaos * 0.55;
+
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+
+        // 鼠标斥力：在屏幕空间把粒子推开
+        vec4 clip = projectionMatrix * mv;
+        vec2 ndc = clip.xy / clip.w;
+        vec2 d = ndc - uMouse; d.x *= uAspect;
+        float dl = length(d);
+        float push = smoothstep(0.32, 0.0, dl) * uMouseStr;
+        mv.xy += normalize(d + 1e-4) * push * 2.2;
+
+        gl_Position = projectionMatrix * mv;
+        float tw = 0.7 + 0.3 * sin(uTime * 2.3 + aRand * 80.0);
+        gl_PointSize = uSize * sz * tw * uPR * (0.55 + aRand * 0.9) / -mv.z;
+        vAlpha = 0.6 + push * 0.6;
+        vColor *= 1.0 + push * 1.5;
+      }`,
+    fragmentShader: /* glsl */`
+      varying vec3 vColor;
+      varying float vAlpha;
+      void main(){
+        vec2 c = gl_PointCoord - 0.5;
+        float d = length(c);
+        if(d > 0.5) discard;
+        float a = pow(1.0 - d * 2.0, 1.7);
+        float core = smoothstep(0.16, 0.0, d);
+        gl_FragColor = vec4(vColor + core * 0.3, a * vAlpha);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const swarm = new THREE.Points(geo, swarmMat);
+  swarm.frustumCulled = false;
+  stage.add(swarm);
+
+  /* =========================================================
+     背景：星云穹顶 + 星空
+     ========================================================= */
+  const nebulaMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { uTime: { value: 0 }, uA: { value: new THREE.Color(0x3344ff) }, uB: { value: new THREE.Color(0xaa33ff) } },
+    vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
+    fragmentShader: /* glsl */`
+      uniform float uTime; uniform vec3 uA, uB; varying vec3 vDir;
+      float hash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+      float vnoise(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.-2.*f);
+        return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+                   mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z); }
+      float fbm(vec3 p){ float s = 0., a = .5; for(int i=0;i<5;i++){ s += a * vnoise(p); p = p * 2.03 + 11.7; a *= .5; } return s; }
+      void main(){
+        vec3 d = normalize(vDir);
+        float n1 = fbm(d * 2.2 + vec3(uTime * .015, 0., uTime * .01));
+        float n2 = fbm(d * 4.5 - vec3(0., uTime * .012, 0.) + n1);
+        vec3 col = uA * pow(n1, 3.2) * 1.1 + uB * pow(n2, 4.0) * 1.2;
+        col *= 0.32 * (0.6 + 0.4 * (1.0 - abs(d.y)));
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(500, 48, 32), nebulaMat));
+
+  {
+    const S = 2600, sp = new Float32Array(S * 3), ss = new Float32Array(S);
+    for (let i = 0; i < S; i++) {
+      const r = 120 + rnd() * 260, th = rnd() * TAU, ph = Math.acos(2 * rnd() - 1);
+      sp[i * 3] = r * Math.sin(ph) * Math.cos(th); sp[i * 3 + 1] = r * Math.cos(ph); sp[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+      ss[i] = rnd();
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+    g.setAttribute('aS', new THREE.BufferAttribute(ss, 1));
+    const m = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uPR: { value: PR } },
+      vertexShader: `uniform float uTime, uPR; attribute float aS; varying float vA;
+        void main(){ vec4 mv = modelViewMatrix * vec4(position,1.); gl_Position = projectionMatrix * mv;
+          vA = 0.35 + 0.65 * (0.5 + 0.5 * sin(uTime * (0.6 + aS * 2.) + aS * 50.));
+          gl_PointSize = (0.8 + aS * 1.8) * uPR; }`,
+      fragmentShader: `varying float vA; void main(){ float d = length(gl_PointCoord - .5); if(d > .5) discard;
+          gl_FragColor = vec4(vec3(0.75, 0.82, 1.0), (1. - d * 2.) * vA * 0.8); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    const stars = new THREE.Points(g, m);
+    stars.userData.mat = m;
+    scene.add(stars);
+    var starField = stars;
+  }
+
+  /* =========================================================
+     各章节的辅助物件（随章节淡入淡出）
+     ========================================================= */
+  const fadeGroups = [];   // { group, index, mats:[{mat, base, key}] }
+  function registerFade(group, index) {
+    const mats = [], labels = [];
+    group.traverse(o => {
+      if (o.isCSS2DObject) labels.push(o);
+      const list = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+      list.forEach(mat => {
+        if (mat.uniforms && mat.uniforms.uOpacity) mats.push({ mat, base: mat.uniforms.uOpacity.value, key: 'u' });
+        else { mat.transparent = true; mats.push({ mat, base: mat.opacity, key: 'o' }); }
+      });
+    });
+    fadeGroups.push({ group, index, mats, labels });
+    stage.add(group);
+  }
+
+  function makeLabel(text, color = '#ffffff', h = 0.75) {
+    const el = document.createElement('div');
+    el.className = 'lbl';
+    el.textContent = text;
+    el.style.setProperty('--lc', color);
+    el.style.fontSize = Math.round(12 + h * 4) + 'px';
+    const obj = new CSS2DObject(el);
+    obj.center.set(0.5, 1);
+    return obj;
+  }
+
+  /* ---------- 1 · Infra：发光网格平台 + 上行数据流 ---------- */
+  const infraGroup = new THREE.Group();
+  const infraPlaneMats = [];
+  const infraNames = ['电力 · 机房', '芯片 · 算力', '高速网络', '存储 · 调度', '模型服务'];
+  for (let l = 0; l < INFRA_LAYERS; l++) {
+    const half = layerHalf(l);
+    const col = new THREE.Color().lerpColors(new THREE.Color(0x2a6bff), new THREE.Color(0x2dffe8), l / (INFRA_LAYERS - 1));
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uOpacity: { value: 1 }, uColor: { value: col }, uIdx: { value: l } },
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
+      fragmentShader: /* glsl */`
+        uniform float uTime, uOpacity, uIdx; uniform vec3 uColor; varying vec2 vUv;
+        void main(){
+          vec2 g = abs(fract(vUv * 12.0) - 0.5);
+          float line = smoothstep(0.44, 0.5, max(g.x, g.y));
+          vec2 e = min(vUv, 1.0 - vUv);
+          float edge = smoothstep(0.018, 0.0, min(e.x, e.y));
+          float dg = (vUv.x + vUv.y) * 0.5;
+          float scan = exp(-pow((fract(dg - uTime * 0.12 - uIdx * 0.21) - 0.5) * 12.0, 2.0));
+          float a = 0.025 + line * (0.12 + scan * 0.45) + edge * 0.75 + scan * 0.05;
+          gl_FragColor = vec4(uColor * a * uOpacity * 1.4, 1.0);
+        }`,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+    });
+    infraPlaneMats.push(mat);
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(half * 2, half * 2), mat);
+    plane.rotation.x = -Math.PI / 2; plane.position.y = layerY(l);
+    infraGroup.add(plane);
+    const lab = makeLabel(`${'①②③④⑤'[l]} ${infraNames[l]}`, '#' + col.clone().lerp(new THREE.Color(0xffffff), 0.45).getHexString(), 0.78);
+    lab.position.set(half + 1.9, layerY(l) + 0.35, half * 0.2);
+    infraGroup.add(lab);
+  }
+  {
+    const P = 520, pp = new Float32Array(P * 3), po = new Float32Array(P);
+    const half = layerHalf(INFRA_LAYERS - 1) * 0.92;
+    for (let i = 0; i < P; i++) {
+      const p = PILLARS[i % PILLARS.length];
+      pp[i * 3] = p[0] * half; pp[i * 3 + 1] = 0; pp[i * 3 + 2] = p[1] * half; po[i] = rnd();
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pp, 3));
+    g.setAttribute('aO', new THREE.BufferAttribute(po, 1));
+    const m = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uOpacity: { value: 1 }, uPR: { value: PR } },
+      vertexShader: `uniform float uTime, uPR; attribute float aO; varying float vF;
+        void main(){ vec3 p = position; float t = fract(aO + uTime * (0.12 + aO * 0.06)); p.y = -6.0 + t * 12.0;
+          vF = sin(t * 3.14159); vec4 mv = modelViewMatrix * vec4(p,1.); gl_Position = projectionMatrix * mv;
+          gl_PointSize = (3.0 + 5.0 * fract(aO * 13.7)) * uPR * 10.0 / -mv.z; }`,
+      fragmentShader: `uniform float uOpacity; varying float vF; void main(){ float d = length(gl_PointCoord - .5); if(d > .5) discard;
+          gl_FragColor = vec4(vec3(0.7, 1.0, 1.0) * 1.6, pow(1. - d * 2., 2.) * vF * uOpacity); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    infraGroup.add(new THREE.Points(g, m));
+  }
+  registerFade(infraGroup, 1);
+
+  /* ---------- 2 · Harness：菲涅尔核心 + 金色笼子 + 轨道上的组件 ---------- */
+  const harnessGroup = new THREE.Group();
+  const coreMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uOpacity: { value: 1 } },
+    vertexShader: /* glsl */`
+      uniform float uTime; varying vec3 vN, vV; varying float vDisp;
+      ${NOISE_GLSL}
+      void main(){
+        float d = snoise(normal * 1.6 + uTime * 0.35) * 0.18;
+        vDisp = d;
+        vec3 p = position + normal * d;
+        vN = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        vV = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform float uOpacity; varying vec3 vN, vV; varying float vDisp;
+      void main(){
+        float fr = pow(1.0 - max(dot(normalize(vN), normalize(vV)), 0.0), 2.4);
+        vec3 col = mix(vec3(1.0, 0.45, 0.12) * 0.35, vec3(1.0, 0.85, 0.6) * 1.5, fr) + vDisp * 1.5;
+        gl_FragColor = vec4(col * uOpacity, 1.0);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1.55, 24), coreMat);
+  harnessGroup.add(core);
+  const coreLabel = makeLabel('模型 MODEL', '#ffe3b8', 0.8);
+  coreLabel.position.set(0, 2.9, 0);
+  harnessGroup.add(coreLabel);
+
+  const cage = new THREE.LineSegments(cageGeo, new THREE.LineBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+  harnessGroup.add(cage);
+  const cageOuter = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(6.6, 0)),
+    new THREE.LineBasicMaterial({ color: 0xff7a2e, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }));
+  harnessGroup.add(cageOuter);
+
+  RINGS.forEach(ring => {
+    const pts = []; for (let k = 0; k <= 160; k++) pts.push(ringPoint(ring, k / 160 * TAU));
+    harnessGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: 0xff6a3d, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false })));
+  });
+  const harnessParts = ['工具', '记忆', '上下文', '护栏', '权限', '验证'];
+  const orbs = harnessParts.map((name, k) => {
+    const g = new THREE.Group();
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.28, 20, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 0.75, 0.3) }));
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.55, 20, 16), new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const lab = makeLabel(name, '#ffd29a', 0.62); lab.position.y = 0.85;
+    g.add(m, halo, lab);
+    harnessGroup.add(g);
+    return { g, ring: RINGS[k % 3], phase: k * 1.7 };
+  });
+  registerFade(harnessGroup, 2);
+
+  /* ---------- 3 · Loop：光环轨道 + 四个站点 ---------- */
+  const loopGroup = new THREE.Group();
+  {
+    const pts = []; for (let k = 0; k <= 200; k++) { const a = k / 200 * TAU; pts.push(new THREE.Vector3(Math.cos(a) * LOOP_R, 0, Math.sin(a) * LOOP_R)); }
+    loopGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: 0xff7af5, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false })));
+    const inner = []; for (let k = 0; k <= 200; k++) { const a = k / 200 * TAU; inner.push(new THREE.Vector3(Math.cos(a) * 3.2, 0, Math.sin(a) * 3.2)); }
+    loopGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(inner),
+      new THREE.LineBasicMaterial({ color: 0x7ae8ff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false })));
+  }
+  const loopSteps = [['思考', 'THINK'], ['行动', 'ACT'], ['观察', 'OBSERVE'], ['验证', 'VERIFY']];
+  const stations = loopSteps.map(([zh, en], k) => {
+    const a = k / 4 * TAU;
+    const g = new THREE.Group();
+    g.position.set(Math.cos(a) * LOOP_R, 0, Math.sin(a) * LOOP_R);
+    const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 0.5, 1.4) });
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.42, 24, 16), mat);
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.9, 24, 16), new THREE.MeshBasicMaterial({ color: 0xff5cf0, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const lab = makeLabel(`${k + 1} · ${zh} ${en}`, '#ffc8fb', 0.7); lab.position.y = 1.55;
+    g.add(m, halo, lab);
+    loopGroup.add(g);
+    return { a, mat, halo, g };
+  });
+  const loopCenter = makeLabel('↻ 直到任务完成', '#cfe9ff', 0.62);
+  loopGroup.add(loopCenter);
+  registerFade(loopGroup, 3);
+
+  /* ---------- 4 · Graph：节点 + 连线 + 标签 ---------- */
+  const graphGroup = new THREE.Group();
+  {
+    const ep = new Float32Array(gEdges.length * 6);
+    gEdges.forEach(([a, b], k) => { gNodes[a].toArray(ep, k * 6); gNodes[b].toArray(ep, k * 6 + 3); });
+    const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(ep, 3));
+    graphGroup.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x2bd9a8, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false })));
+    const inst = new THREE.InstancedMesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.8, 1.6, 1.2) }), gNodes.length);
+    const mtx = new THREE.Matrix4();
+    gNodes.forEach((n, k) => { mtx.makeScale(1, 1, 1).setPosition(n); inst.setMatrixAt(k, mtx); });
+    graphGroup.add(inst);
+    // 挑几个节点贴上“站名”
+    const names = ['用户提问', '模型', '搜索工具', '记忆', '代码执行', '人工审核', '输出答案', '达·芬奇', '蒙娜丽莎'];
+    const order = gNodes.map((n, k) => [k, n.length()]).sort((a, b) => a[1] - b[1]);
+    names.forEach((nm, k) => {
+      const node = gNodes[order[Math.min(k * 4, order.length - 1)][0]];
+      const lab = makeLabel(nm, '#b8ffe2', 0.58);
+      lab.position.copy(node).add(new THREE.Vector3(0, 0.75, 0));
+      graphGroup.add(lab);
+    });
+  }
+  registerFade(graphGroup, 4);
+
+  /* =========================================================
+     后期：辉光 + 色散 / 暗角 / 胶片颗粒
+     ========================================================= */
+  const labelRenderer = new CSS2DRenderer();
+  labelRenderer.setSize(innerWidth, innerHeight);
+  Object.assign(labelRenderer.domElement.style, { position: 'fixed', inset: '0', pointerEvents: 'none', zIndex: '1' });
+  document.body.insertBefore(labelRenderer.domElement, canvas.nextSibling);
+
+  const composer = new EffectComposer(renderer);
+  composer.setPixelRatio(PR);
+  composer.setSize(innerWidth, innerHeight);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.95, 0.65, 0.08);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+  const finalPass = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uCA: { value: 0.004 }, uRes: { value: new THREE.Vector2(innerWidth, innerHeight) } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
+    fragmentShader: /* glsl */`
+      uniform sampler2D tDiffuse; uniform float uTime, uCA; uniform vec2 uRes; varying vec2 vUv;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+      void main(){
+        vec2 c = vUv - 0.5;
+        vec2 off = c * dot(c, c) * uCA * 6.0;
+        vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+        float vig = smoothstep(0.92, 0.22, length(c * vec2(1.0, 1.2)));
+        col *= mix(0.28, 1.0, vig);
+        col += (hash(vUv * uRes + fract(uTime * 7.13) * 100.0) - 0.5) * 0.04;
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+  composer.addPass(finalPass);
+
+  /* =========================================================
+     镜头关键帧（每章一个机位），侧向偏移给文字面板让位
+     ========================================================= */
+  const KEYS = [
+    { p: [0, 3, 36], t: [0, 0, 0], side: 0, neb: [0x3344ff, 0xaa33ff] },
+    { p: [19, 10.5, 21], t: [0, -0.5, 0], side: 1, neb: [0x0a4fd0, 0x0096c8] },
+    { p: [-20, 6.5, 27], t: [0, 0, 0], side: -1, neb: [0xb8440c, 0x7a1238] },
+    { p: [4, 19, 21], t: [0, -1, 0], side: 1, neb: [0x9a14c8, 0x1460c8] },
+    { p: [17, -3, 27], t: [0, 0, 0], side: -1, neb: [0x00a86a, 0x1450c0] },
+    { p: [0, 5, 44], t: [0, -7.5, 0], side: 0, neb: [0x3355ff, 0xff3dc8] },
+  ];
+  const camCurve = new THREE.CatmullRomCurve3(KEYS.map(k => new THREE.Vector3(...k.p)), false, 'centripetal');
+  const colA = new THREE.Color(), colB = new THREE.Color(), tmpC = new THREE.Color();
+  const vT = new THREE.Vector3(), vP = new THREE.Vector3(), vRight = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+  const sideAmount = () => (innerWidth < 820 ? 0 : 5.2);
+
+  /* ---------- 交互 ---------- */
+  const mouse = new THREE.Vector2(0, 0), mouseS = new THREE.Vector2(0, 0);
+  let mouseActive = 0, mouseStr = 0;
+  addEventListener('pointermove', e => {
+    mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    mouseActive = 1;
+  });
+  document.addEventListener('pointerleave', () => { mouseActive = 0; });
+
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight; applyViewOffset(); camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+    composer.setSize(innerWidth, innerHeight);
+    labelRenderer.setSize(innerWidth, innerHeight);
+    bloom.resolution.set(innerWidth, innerHeight);
+    finalPass.uniforms.uRes.value.set(innerWidth, innerHeight);
+    swarmMat.uniforms.uAspect.value = innerWidth / innerHeight;
+    measure(); onScroll();
+  });
+
+  /* =========================================================
+     渲染循环
+     ========================================================= */
+  let morph = morphTarget, last = performance.now(), t = 0, first = true;
+  const tmpV = new THREE.Vector3();
+
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05); last = now; t += dt;
+    morph += (morphTarget - morph) * (1 - Math.exp(-dt * 2.6));
+    const chaos = Math.sin((morph - Math.floor(morph)) * Math.PI);
+
+    // 镜头
+    const k = clamp(morph, 0, LAST);
+    camCurve.getPoint(k / LAST, vP);
+    const i0 = Math.min(Math.floor(k), LAST - 1), f = smoothstep(0, 1, k - i0);
+    const A = KEYS[i0], B = KEYS[i0 + 1];
+    vT.set(A.t[0] + (B.t[0] - A.t[0]) * f, A.t[1] + (B.t[1] - A.t[1]) * f, A.t[2] + (B.t[2] - A.t[2]) * f);
+    const side = (A.side + (B.side - A.side) * f) * sideAmount();
+    // 竖屏时视野变窄，按宽高比把镜头拉远
+    const distScale = camera.aspect < 1 ? Math.min(1 / camera.aspect, 2.1) : 1;
+    vP.sub(vT).multiplyScalar(distScale).add(vT);
+    mouseS.lerp(mouse, 1 - Math.exp(-dt * 3));
+    vP.x += mouseS.x * 1.6; vP.y += mouseS.y * 1.1;
+    vP.y += Math.sin(t * 0.4) * 0.35;
+    camera.position.copy(vP);
+    vRight.subVectors(vT, vP).normalize().cross(UP).normalize();
+    vT.addScaledVector(vRight, -side);
+    camera.lookAt(vT);
+
+    stage.rotation.y = t * 0.045;
+
+    // 粒子
+    mouseStr += ((mouseActive ? 1 : 0) - mouseStr) * (1 - Math.exp(-dt * 4));
+    swarmMat.uniforms.uTime.value = t;
+    swarmMat.uniforms.uMorph.value = morph;
+    swarmMat.uniforms.uMouse.value.copy(mouseS);
+    swarmMat.uniforms.uMouseStr.value = mouseStr;
+
+    // 星云配色
+    const nA = KEYS[i0].neb, nB = KEYS[i0 + 1].neb;
+    nebulaMat.uniforms.uA.value.copy(colA.set(nA[0]).lerp(tmpC.set(nB[0]), f));
+    nebulaMat.uniforms.uB.value.copy(colB.set(nA[1]).lerp(tmpC.set(nB[1]), f));
+    nebulaMat.uniforms.uTime.value = t;
+    starField.userData.mat.uniforms.uTime.value = t;
+    starField.rotation.y = t * 0.004;
+
+    // 章节辅助物件淡入淡出
+    fadeGroups.forEach(fg => {
+      const w = clamp(1 - Math.abs(morph - fg.index) * 1.8, 0, 1);
+      const e = w * w * (3 - 2 * w);
+      fg.group.visible = e > 0.003;
+      fg.labels.forEach(l => { l.element.style.opacity = e > 0.35 ? (e - 0.35) / 0.65 : 0; l.visible = fg.group.visible; });
+      if (!fg.group.visible) return;
+      fg.mats.forEach(m => { if (m.key === 'u') m.mat.uniforms.uOpacity.value = m.base * e; else m.mat.opacity = m.base * e; });
+      fg.group.scale.setScalar(0.85 + 0.15 * e);
+    });
+
+    // Infra
+    infraGroup.children.forEach(o => { if (o.material && o.material.uniforms && o.material.uniforms.uTime) o.material.uniforms.uTime.value = t; });
+
+    // Harness
+    coreMat.uniforms.uTime.value = t;
+    core.scale.setScalar(1 + Math.sin(t * 2.2) * 0.04);
+    cage.rotation.y = t * 0.12; cage.rotation.x = Math.sin(t * 0.2) * 0.15;
+    cageOuter.rotation.y = -t * 0.08; cageOuter.rotation.z = t * 0.05;
+    orbs.forEach(o => ringPoint(o.ring, o.phase + t * o.ring.speed, o.g.position));
+
+    // Loop：彗星头经过时点亮站点
+    // 着色器里彗星头位于 θ = t * 1.1
+    const head = t * 1.1;
+    const lf = loopFade();
+    stations.forEach(s => {
+      const glow = Math.pow(0.5 + 0.5 * Math.cos(s.a - head), 18);
+      s.mat.color.setRGB(1.0 + glow * 2.5, 0.45 + glow * 1.6, 1.2 + glow * 2.0);
+      s.g.scale.setScalar(1 + glow * 0.55);
+      s.halo.material.opacity = (0.15 + glow * 0.5) * lf;
+    });
+
+    // 后期参数随变形强度变化
+    bloom.strength = 0.78 + chaos * 0.2;
+    finalPass.uniforms.uCA.value = 0.0035 + chaos * 0.007;
+    finalPass.uniforms.uTime.value = t;
+
+    composer.render();
+    labelRenderer.render(scene, camera);
+
+    if (first) { first = false; setTimeout(() => document.getElementById('loader').classList.add('done'), 250); }
+    requestAnimationFrame(frame);
+  }
+  function loopFade() { const w = clamp(1 - Math.abs(morph - 3) * 1.8, 0, 1); return w * w * (3 - 2 * w); }
+
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
